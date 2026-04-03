@@ -41,18 +41,26 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         self.current_idx = 0 if self.dicts else -1
 
     def _my_processText(self, text):
-        # 如果沒有文字、或處於停用狀態、或索引超出範圍，直接回傳
-        if not text or self.current_idx == -1:
+        if not text: 
             return self._orig_processText(text)
             
         try:
-            processed_text = text
+            # 1. 先呼叫原生的處理函式，讓 NVDA 原生辭典（使用者、語音、預設）優先發生作用
+            processed_text = self._orig_processText(text)
+            
+            # 2. 如果目前是「停用」狀態，直接回傳原生處理後的結果
+            if self.current_idx == -1:
+                return processed_text
+                
+            # 3. 在原生處理後的基礎上，套用插件字典（如 math_dict.dic 或 brl_dict.dic）
+            final_text = processed_text
             active_dict = self.dicts[self.current_idx]
-            # 遍歷當前字典的所有規則進行替換 (NVDA 2025 寫法)
             for rule in active_dict:
-                processed_text = rule.sub(processed_text)
-            return self._orig_processText(processed_text)
-        except Exception as e:
+                final_text = rule.sub(final_text)
+                
+            return final_text
+        except:
+            # 發生錯誤時回傳原生處理結果，確保語音不中斷
             return self._orig_processText(text)
 
     # 2. 定義快捷鍵動作：切換字典

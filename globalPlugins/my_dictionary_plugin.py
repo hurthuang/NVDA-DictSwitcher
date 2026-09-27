@@ -9,6 +9,11 @@
 #     4. 本外掛字典套用（my_dict / brl_dict 在原生之後；math_dict 在原生之前）
 #
 # 因此使用者在 NVDA 設定的個人詞庫與標點符號讀法不會被本外掛覆蓋。
+#
+# 注音點字字庫（brl_dict）從左到右切音節，不逐條取代：
+#   輕聲記號與聲母ㄓ都是點 1，逐條取代時會跨過音節交界誤配，例：「⠾⠁⠮⠐」（呀˙＋餓）
+#   會先配到「⠁⠮⠐」（這）。所以字典開頭連續的「任意位置、分大小寫」條目（音節與標點）改成查表，
+#   從左到右每個位置先試最長的鍵；其餘條目（數字、數學的正規式等）照原本順序逐條套用。
 
 import globalPluginHandler
 import speechDictHandler
@@ -120,6 +125,38 @@ def _download_and_install_worker(asset_url):
     wx.CallAfter(os.startfile, tmp_path)
 
 
+def _build_tokenizer(sd):
+    """字典開頭連續的「任意位置、分大小寫」條目 → (查表, 最長鍵長度, 其餘條目)；同一個鍵以第一條為準"""
+    table = {}
+    n = 0
+    for entry in sd:
+        if int(entry.type) != 0 or not entry.caseSensitive:
+            break
+        table.setdefault(entry.pattern, entry.replacement)
+        n += 1
+    if not table:
+        return None
+    return table, max(len(k) for k in table), list(sd)[n:]
+
+
+def _tokenize(text, table, max_len):
+    """從左到右，每個位置先試最長的鍵；查不到的字元原樣保留"""
+    out = []
+    i = 0
+    n = len(text)
+    while i < n:
+        for length in range(min(max_len, n - i), 0, -1):
+            value = table.get(text[i:i + length])
+            if value is not None:
+                out.append(value)
+                i += length
+                break
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
+
+
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
     # --- 對照表設定區 ---
     DICT_CONFIG = {
@@ -128,6 +165,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         "math_dict.dic": "數學點字字庫",
     }
     PRE_PROCESS_DICTS = {"math_dict.dic", "brl_dict.dic"}
+    TOKENIZE_DICTS = {"brl_dict.dic"}   # 從左到右切音節（見檔案開頭說明）
 
     def __init__(self):
         super().__init__()
@@ -135,6 +173,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         self.dicts = []
         self.display_names = []
         self.pre_process = []
+        self.tokenizers = []
 
         for fileName, friendlyName in self.DICT_CONFIG.items():
             path = os.path.join(os.path.dirname(__file__), fileName)
@@ -145,6 +184,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
                     self.dicts.append(sd)
                     self.display_names.append(friendlyName)
                     self.pre_process.append(fileName in self.PRE_PROCESS_DICTS)
+                    self.tokenizers.append(_build_tokenizer(sd) if fileName in self.TOKENIZE_DICTS else None)
                     log.info(f"DictSwitcher: 載入字典成功: {fileName} ({friendlyName})")
                 except Exception as e:
                     log.error(f"DictSwitcher: 載入字典失敗 {fileName}: {e}")
@@ -173,9 +213,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
             active_dict = self.dicts[self.current_idx]
 
             if self.pre_process[self.current_idx]:
-                result = text
-                for rule in active_dict:
-                    result = rule.sub(result)
+                tokenizer = self.tokenizers[self.current_idx]
+                if tokenizer:
+                    table, max_len, rest = tokenizer
+                    result = _tokenize(text, table, max_len)
+                    for rule in rest:
+                        result = rule.sub(result)
+                else:
+                    result = text
+                    for rule in active_dict:
+                        result = rule.sub(result)
                 return self._orig_processText(result, *args)
             else:
                 result = self._orig_processText(text, *args)

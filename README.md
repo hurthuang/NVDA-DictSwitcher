@@ -34,6 +34,17 @@
 > **注意：** 編輯時請確保檔案第一行為 `nvda_speech_dict_v1`，且儲存編碼為 **UTF-8 (不帶 BOM)**。
 ---
 
+## 資料來源與致謝
+
+破音字修正字庫的讀音經以下資料查證與驗證，這些資料只用於分析，沒有收錄在附加元件中：
+
+* **國中教育會考 NVDA 可攜版讀音清單**與 106–115 年 NVDA 試題的讀音標注
+* **教育部《重編國語辭典修訂本》**：查證讀音（透過[萌典](https://www.moedict.tw/)）
+* **教育部《國語一字多音審訂表》**（88 年版、2012 年版）與《重編國語辭典修訂本與國語一字多音審訂表取音差異表》：比對讀音標準（審訂表資料取自 [g0v/moedict-data-csld](https://github.com/g0v/moedict-data-csld)）
+* **[g2pW](https://github.com/GitYCC/g2pW)**（Apache-2.0）：多音字判斷模型，用來找出 Hanhan 可能念錯的地方並驗證「為」的規則
+* **[小麥注音 McBopomofo](https://github.com/openvanilla/McBopomofo)**（MIT）的詞庫：切詞
+* **中文維基百科**等一般文章：驗證條目不會把其他句子念錯
+
 ## 開發與授權
 
 * **作者**：hurthuang

@@ -14,9 +14,16 @@
 #   輕聲記號與聲母ㄓ都是點 1，逐條取代時會跨過音節交界誤配，例：「⠾⠁⠮⠐」（呀˙＋餓）
 #   會先配到「⠁⠮⠐」（這）。所以字典開頭連續的「任意位置、分大小寫」條目（音節與標點）改成查表，
 #   從左到右每個位置先試最長的鍵；其餘條目（數字、數學的正規式等）照原本順序逐條套用。
+#
+# 點字字庫開著時，讀出全部（NVDA+↓）固定逐行讀：
+#   NVDA 2026.3 起「讀出全部根據」預設為句子，傳統編輯區（例：Windows 10 記事本）用 ICU 切句，
+#   會在 ! ? 後面斷開；但點字 ASCII 的 ! ? 是注音的一部分（d!a＝的），一個字被切成兩段分別查字典，
+#   就念成英文字母。所以注音點字、數學點字字庫開著時，UNIT_READINGCHUNK 一律當成行；
+#   其他字庫或停用時照 NVDA 的設定。舊版 NVDA 沒有 unit_readingChunk，就不處理。
 
 import globalPluginHandler
 import speechDictHandler
+import textInfos
 import os
 import ui
 import logging
@@ -166,6 +173,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
     }
     PRE_PROCESS_DICTS = {"math_dict.dic", "brl_dict.dic"}
     TOKENIZE_DICTS = {"brl_dict.dic"}   # 從左到右切音節（見檔案開頭說明）
+    SAYALL_BY_LINE_DICTS = {"math_dict.dic", "brl_dict.dic"}   # 讀出全部固定逐行（見檔案開頭說明）
 
     def __init__(self):
         super().__init__()
@@ -174,6 +182,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         self.display_names = []
         self.pre_process = []
         self.tokenizers = []
+        self.sayall_by_line = []
 
         for fileName, friendlyName in self.DICT_CONFIG.items():
             path = os.path.join(os.path.dirname(__file__), fileName)
@@ -185,6 +194,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
                     self.display_names.append(friendlyName)
                     self.pre_process.append(fileName in self.PRE_PROCESS_DICTS)
                     self.tokenizers.append(_build_tokenizer(sd) if fileName in self.TOKENIZE_DICTS else None)
+                    self.sayall_by_line.append(fileName in self.SAYALL_BY_LINE_DICTS)
                     log.info(f"DictSwitcher: 載入字典成功: {fileName} ({friendlyName})")
                 except Exception as e:
                     log.error(f"DictSwitcher: 載入字典失敗 {fileName}: {e}")
@@ -196,10 +206,31 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         speechDictHandler.processText = self._my_processText
         log.info(f"DictSwitcher: hook 完成，speechDictHandler.processText = {speechDictHandler.processText}")
 
+        self._hook_reading_chunk()
+
         # 啟動時背景自動檢查一次更新，延遲幾秒避免搶在 NVDA 啟動流程前面；有新版才提示，沒有則靜默
         wx.CallLater(5000, lambda: threading.Thread(
             target=_check_update_worker, kwargs={"silent": True}, daemon=True
         ).start())
+
+    def _hook_reading_chunk(self):
+        """點字字庫開著時，UNIT_READINGCHUNK 當成行（見檔案開頭說明）"""
+        self._orig_readingChunk = textInfos.TextInfo.__dict__.get("unit_readingChunk")
+        if self._orig_readingChunk is None:
+            return  # NVDA 2026.3 以前：讀出全部本來就逐行
+        orig = self._orig_readingChunk
+        plugin = self
+
+        def _get_unit_readingChunk(info):
+            if plugin._sayall_by_line_active():
+                return textInfos.UNIT_LINE
+            return orig.__get__(info, type(info))
+
+        textInfos.TextInfo.unit_readingChunk = property(_get_unit_readingChunk)
+        log.info("DictSwitcher: 點字字庫開著時讀出全部固定逐行")
+
+    def _sayall_by_line_active(self):
+        return self.current_idx != -1 and self.sayall_by_line[self.current_idx]
 
     def _my_processText(self, text, *args):
         log.debug(f"DictSwitcher: called idx={self.current_idx} text={repr(text[:40] if text else text)} args={args}")
@@ -256,3 +287,5 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
     def terminate(self):
         speechDictHandler.processText = self._orig_processText
+        if self._orig_readingChunk is not None:
+            textInfos.TextInfo.unit_readingChunk = self._orig_readingChunk

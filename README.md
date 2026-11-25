@@ -51,3 +51,4 @@
 
 * **作者**：hurthuang
 * **適用版本**：NVDA 2026.1 或更高版本。
+* **授權**：GPL v2，見 [LICENSE](LICENSE)。
